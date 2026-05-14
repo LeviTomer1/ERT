@@ -1,9 +1,11 @@
-import { useMemo, useState, type FormEvent } from 'react'
+﻿import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { Card } from '../../components/Card'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useApartment } from '../../context/ApartmentContext'
+import { useAuth } from '../../context/AuthContext'
 import { useExpenses } from '../../context/ExpensesContext'
-import type { Expense, User } from '../../types/models'
+import { PaymentsPage, type PaymentsPageHandle } from '../Payments'
+import type { Expense, Payment, User } from '../../types/models'
 
 const allCategories = 'כל הקטגוריות'
 
@@ -61,6 +63,94 @@ function calculateShare(expense: Expense) {
   return Number(expense.amount) / participants
 }
 
+function calculateNetBalanceForUser(expenses: Expense[], payments: Payment[], userId: number) {
+  let balance = 0
+
+  expenses
+    .filter((expense) => expense.status === 'active')
+    .forEach((expense) => {
+      const amount = Number(expense.amount)
+      const participants = expense.participant_ids
+      if (!Number.isFinite(amount) || amount <= 0 || participants.length === 0) return
+
+      if (expense.paid_by === userId) balance += amount
+      if (participants.includes(userId)) balance -= amount / participants.length
+    })
+
+  payments
+    .filter((payment) => payment.status === 'recorded')
+    .forEach((payment) => {
+      const amount = Number(payment.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return
+
+      if (payment.payer_id === userId) balance += amount
+      if (payment.payee_id === userId) balance -= amount
+    })
+
+  return balance
+}
+
+function calculatePersonalSettlements(expenses: Expense[], payments: Payment[], userIds: number[], userId: number) {
+  const balances = new Map(userIds.map((id) => [id, 0]))
+
+  expenses
+    .filter((expense) => expense.status === 'active')
+    .forEach((expense) => {
+      const amount = Number(expense.amount)
+      const participants = expense.participant_ids
+      if (!Number.isFinite(amount) || amount <= 0 || participants.length === 0) return
+
+      const share = amount / participants.length
+      balances.set(expense.paid_by, (balances.get(expense.paid_by) ?? 0) + amount)
+      participants.forEach((participantId) => {
+        balances.set(participantId, (balances.get(participantId) ?? 0) - share)
+      })
+    })
+
+  payments
+    .filter((payment) => payment.status === 'recorded')
+    .forEach((payment) => {
+      const amount = Number(payment.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return
+
+      balances.set(payment.payer_id, (balances.get(payment.payer_id) ?? 0) + amount)
+      balances.set(payment.payee_id, (balances.get(payment.payee_id) ?? 0) - amount)
+    })
+
+  const debtors = [...balances.entries()]
+    .filter(([, balance]) => balance < -0.005)
+    .map(([id, balance]) => ({ id, amount: Math.abs(balance) }))
+    .sort((first, second) => second.amount - first.amount)
+
+  const creditors = [...balances.entries()]
+    .filter(([, balance]) => balance > 0.005)
+    .map(([id, balance]) => ({ id, amount: balance }))
+    .sort((first, second) => second.amount - first.amount)
+
+  const settlements: Array<{ payer_id: number; payee_id: number; amount: number }> = []
+
+  debtors.forEach((debtor) => {
+    let remaining = debtor.amount
+
+    creditors.forEach((creditor) => {
+      if (remaining <= 0.005 || creditor.amount <= 0.005) return
+      const amount = Math.min(remaining, creditor.amount)
+      settlements.push({
+        payer_id: debtor.id,
+        payee_id: creditor.id,
+        amount,
+      })
+      remaining -= amount
+      creditor.amount -= amount
+    })
+  })
+
+  return {
+    debtsToMe: settlements.filter((settlement) => settlement.payee_id === userId),
+    debtsFromMe: settlements.filter((settlement) => settlement.payer_id === userId),
+  }
+}
+
 function buildFormFromExpense(expense: Expense): ExpenseFormState {
   return {
     description: expense.description,
@@ -73,6 +163,7 @@ function buildFormFromExpense(expense: Expense): ExpenseFormState {
 }
 
 export function ExpensesPage() {
+  const { user } = useAuth()
   const { current } = useApartment()
   const apartmentId = current?.apartment.id ?? 0
   const roommates = useMemo(
@@ -84,7 +175,7 @@ export function ExpensesPage() {
     [roommates],
   )
   const getUserName = (userId: number) => userNameById.get(userId)
-  const { expenses, addExpense, updateExpense, deleteExpense } = useExpenses()
+  const { expenses, payments, addExpense, updateExpense, deleteExpense } = useExpenses()
   const [monthFilter, setMonthFilter] = useState(new Date().toISOString().slice(0, 7))
   const [categoryFilter, setCategoryFilter] = useState(allCategories)
   const [isAddOpen, setIsAddOpen] = useState(false)
@@ -93,6 +184,7 @@ export function ExpensesPage() {
   const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null)
   const [form, setForm] = useState<ExpenseFormState>(() => createInitialFormState(roommates))
   const [formError, setFormError] = useState('')
+  const paymentsPageRef = useRef<PaymentsPageHandle>(null)
 
   const activeExpenses = expenses.filter(
     (expense) => expense.status === 'active' && expense.apartment_id === apartmentId,
@@ -117,7 +209,17 @@ export function ExpensesPage() {
   const monthlyExpenses = activeExpenses.filter((expense) => getMonth(expense.date) === monthFilter)
   const monthlyTotal = monthlyExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
   const filteredTotal = filteredExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0)
-  const averageExpense = monthlyExpenses.length > 0 ? monthlyTotal / monthlyExpenses.length : 0
+  const apartmentPayments = payments.filter((payment) => payment.apartment_id === apartmentId)
+  const myNetBalance = user?.id ? calculateNetBalanceForUser(activeExpenses, apartmentPayments, user.id) : 0
+  const amountOwedToMe = Math.max(myNetBalance, 0)
+  const { debtsToMe, debtsFromMe } = user?.id
+    ? calculatePersonalSettlements(
+        activeExpenses,
+        apartmentPayments,
+        roommates.map((roommate) => roommate.id),
+        user.id,
+      )
+    : { debtsToMe: [], debtsFromMe: [] }
   const totalsByUser = monthlyExpenses.reduce<Record<number, number>>(
     (totals, expense) => ({
       ...totals,
@@ -127,9 +229,7 @@ export function ExpensesPage() {
   )
   const [topPayerId, topPayerTotal] =
     Object.entries(totalsByUser).sort((a, b) => Number(b[1]) - Number(a[1]))[0] ?? []
-  const topPayer = topPayerId
-    ? { name: getUserName(Number(topPayerId)), total: Number(topPayerTotal) }
-    : null
+  const topPayer = topPayerId ? { name: getUserName(Number(topPayerId)), total: Number(topPayerTotal) } : null
 
   function updateForm(field: keyof ExpenseFormState, value: string | number[]) {
     setForm((currentForm) => ({ ...currentForm, [field]: value }))
@@ -248,27 +348,49 @@ export function ExpensesPage() {
   return (
     <div className="page expenses-page">
       <div className="page__head expenses-hero">
-        <button
-          type="button"
-          className="btn btn--primary expenses-hero__action"
-          onClick={openAddModal}
-        >
-          + הוצאה חדשה
-        </button>
+        <div>
+          <p className="expenses-hero__eyebrow">כספים בדירה</p>
+          <h1 className="page__title">הוצאות, חשבונות ויתרות</h1>
+          <p className="page__lead">
+            כל חשבון או קנייה נרשמים כהוצאה: בוחרים מי שילם ובין מי הסכום מתחלק.
+          </p>
+        </div>
+      </div>
+
+      <div className="finance-primary-actions">
+        <div className="finance-primary-actions__buttons">
+          <button type="button" className="btn btn--primary finance-primary-actions__button" onClick={openAddModal}>
+            + הוצאה חדשה
+          </button>
+          <button
+            type="button"
+            className="btn btn--secondary finance-primary-actions__button"
+            onClick={() => paymentsPageRef.current?.openPaymentModal()}
+          >
+            סגירת חוב
+          </button>
+        </div>
+        <p>חשבון ששולם לצד שלישי מוסיפים כהוצאה. סגירת חוב היא רק כשדייר מעביר כסף לדייר אחר.</p>
       </div>
 
       <section className="expenses-summary" aria-label="סיכום חודשי">
         <Card className="expenses-summary__main">
-          <p className="expenses-summary__label">סה"כ הוצאות ב{monthLabel(monthFilter)}</p>
+          <p className="expenses-summary__label">סה&quot;כ הוצאות ב{monthLabel(monthFilter)}</p>
           <p className="expenses-summary__amount">{formatCurrency(monthlyTotal)}</p>
           <p className="expenses-summary__hint">{monthlyExpenses.length} הוצאות פעילות בחודש הנבחר</p>
         </Card>
 
+        <Card className="expenses-summary__owed">
+          <p className="expenses-mini-stat__label">חייבים לי</p>
+          <p className="expenses-mini-stat__value expenses-mini-stat__value--success">
+            {formatCurrency(amountOwedToMe)}
+          </p>
+          <p className="expenses-mini-stat__hint">
+            {amountOwedToMe > 0.005 ? 'יתרה פתוחה לקבלה' : 'אין יתרה שחייבים לך'}
+          </p>
+        </Card>
+
         <div className="expenses-summary__grid">
-          <Card>
-            <p className="expenses-mini-stat__label">ממוצע להוצאה</p>
-            <p className="expenses-mini-stat__value">{formatCurrency(averageExpense)}</p>
-          </Card>
           <Card>
             <p className="expenses-mini-stat__label">שילם הכי הרבה</p>
             <p className="expenses-mini-stat__value">{topPayer?.name ?? 'אין נתונים'}</p>
@@ -276,6 +398,42 @@ export function ExpensesPage() {
           </Card>
         </div>
       </section>
+
+      <Card className="personal-balance-card" title="פירוט יתרה אישי">
+        <div className="personal-balance-summary personal-balance-summary--top">
+          <div className="personal-balance-summary__section">
+            <h3>חייבים לי</h3>
+            {debtsToMe.length === 0 ? (
+              <p>כרגע אף אחד לא חייב לך כסף.</p>
+            ) : (
+              <ul>
+                {debtsToMe.map((settlement) => (
+                  <li key={`expense-to-me-${settlement.payer_id}-${settlement.payee_id}`}>
+                    <span>{getUserName(settlement.payer_id) ?? 'דייר'} חייב לך</span>
+                    <strong>{formatCurrency(settlement.amount)}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="personal-balance-summary__section personal-balance-summary__section--danger">
+            <h3>אני חייב</h3>
+            {debtsFromMe.length === 0 ? (
+              <p>אין לך חובות פתוחים לדיירים אחרים.</p>
+            ) : (
+              <ul>
+                {debtsFromMe.map((settlement) => (
+                  <li key={`expense-from-me-${settlement.payer_id}-${settlement.payee_id}`}>
+                    <span>אתה חייב ל{getUserName(settlement.payee_id) ?? 'דייר'}</span>
+                    <strong>{formatCurrency(settlement.amount)}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </Card>
 
       <Card title="סינון הוצאות">
         <div className="expenses-filters">
@@ -320,11 +478,7 @@ export function ExpensesPage() {
 
               return (
                 <li key={expense.id} className="expense-list__item expense-item-card">
-                  <button
-                    type="button"
-                    className="expense-item-card__button"
-                    onClick={() => setSelectedExpense(expense)}
-                  >
+                  <button type="button" className="expense-item-card__button" onClick={() => setSelectedExpense(expense)}>
                     <span className="expense-item-card__main">
                       <span className="expense-list__title">{expense.description}</span>
                       <span className="expense-list__meta">
@@ -335,9 +489,7 @@ export function ExpensesPage() {
                     </span>
                     <span className="expense-item-card__side">
                       <span className="expense-list__amount">{formatCurrency(expense.amount)}</span>
-                      <span className="expense-item-card__share">
-                        חלק לדייר: {formatCurrency(calculateShare(expense))}
-                      </span>
+                      <span className="expense-item-card__share">חלק לדייר: {formatCurrency(calculateShare(expense))}</span>
                     </span>
                   </button>
                 </li>
@@ -346,6 +498,8 @@ export function ExpensesPage() {
           </ul>
         )}
       </Card>
+
+      <PaymentsPage ref={paymentsPageRef} embedded showHero={false} />
 
       {isAddOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -407,11 +561,7 @@ export function ExpensesPage() {
                 <div className="expense-participants__grid">
                   {roommates.map((roommate) => (
                     <label key={roommate.id} className="expense-participants__option">
-                      <input
-                        type="checkbox"
-                        checked={form.participantIds.includes(roommate.id)}
-                        onChange={() => toggleParticipant(roommate.id)}
-                      />
+                      <input type="checkbox" checked={form.participantIds.includes(roommate.id)} onChange={() => toggleParticipant(roommate.id)} />
                       <span>{roommate.name}</span>
                     </label>
                   ))}

@@ -4,8 +4,7 @@ import { appRoutes } from '../routes/paths'
 
 const links: { to: string; label: string; end?: boolean }[] = [
   { to: appRoutes.dashboard, label: 'בית', end: true },
-  { to: appRoutes.expenses, label: 'הוצאות' },
-  { to: appRoutes.payments, label: 'תשלומים' },
+  { to: appRoutes.expenses, label: 'כספים' },
   { to: appRoutes.tasks, label: 'מטלות' },
   { to: appRoutes.shopping, label: 'קניות' },
   { to: appRoutes.tickets, label: 'פניות' },

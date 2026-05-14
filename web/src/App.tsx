@@ -7,7 +7,6 @@ import { ApartmentInfoPage } from './pages/ApartmentInfo'
 import { DashboardPage } from './pages/Dashboard'
 import { ExpensesPage } from './pages/Expenses'
 import { LoginPage } from './pages/Login'
-import { PaymentsPage } from './pages/Payments'
 import { RegisterPage } from './pages/Register'
 import { ResetPasswordPage } from './pages/ResetPassword'
 import { RoommatesPage } from './pages/Roommates'
@@ -89,11 +88,7 @@ export default function App() {
         />
         <Route
           path={appRoutes.payments}
-          element={
-            <RoleGate>
-              <PaymentsPage />
-            </RoleGate>
-          }
+          element={<Navigate to={appRoutes.expenses} replace />}
         />
         <Route
           path={appRoutes.tasks}

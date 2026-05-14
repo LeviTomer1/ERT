@@ -1820,10 +1820,38 @@ input {
   gap: 12px;
 }
 
+.expenses-page > .finance-primary-actions {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.expenses-page > .finance-primary-actions .finance-primary-actions__button {
+  width: 100%;
+  min-height: 58px;
+  border-radius: 18px;
+  font-size: 1rem;
+  justify-content: center;
+}
+
 .expenses-summary__main {
   background:
     radial-gradient(circle at 0% 0%, rgba(46, 196, 182, 0.18), transparent 18rem),
     #ffffff;
+}
+
+.expenses-summary__owed {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(34, 197, 94, 0.14), transparent 14rem),
+    #ffffff;
+}
+
+.expenses-summary__owed .card__body {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .expenses-summary__label,
@@ -1846,16 +1874,21 @@ input {
 }
 
 .expenses-summary__grid {
-  display: grid;
+  display: none;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .expenses-mini-stat__value {
   margin: 6px 0 0;
-  font-size: 1.12rem;
+  font-size: clamp(1.45rem, 7vw, 2.1rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.expenses-mini-stat__value--success {
+  color: #15803d;
 }
 
 .expenses-filters,
@@ -2155,10 +2188,48 @@ input {
 }
 
 .payments-page {
+  display: grid;
   gap: 12px;
 }
 
+.payments-page--embedded {
+  margin-top: 8px;
+}
+
+.finance-primary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff, #f5fffc);
+  box-shadow: var(--shadow-card);
+}
+
+.finance-primary-actions p {
+  display: none;
+}
+
+.finance-primary-actions__buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.finance-primary-actions__button {
+  min-height: 44px;
+  font-weight: 850;
+  white-space: nowrap;
+  justify-content: center;
+}
+
 .payments-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
   margin-bottom: 0;
   padding: 2px 2px 4px;
   align-items: flex-start;
@@ -2242,6 +2313,54 @@ input {
   margin: 2px 0 0;
   color: var(--color-text-secondary);
   font-size: 0.78rem;
+}
+
+.personal-balance-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.personal-balance-summary__section {
+  border: 1px solid rgba(15, 118, 110, 0.16);
+  border-radius: 8px;
+  background: #f7fffd;
+  padding: 12px;
+}
+
+.personal-balance-summary__section--danger {
+  border-color: rgba(220, 38, 38, 0.14);
+  background: #fffafa;
+}
+
+.personal-balance-summary h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.personal-balance-summary p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.personal-balance-summary ul {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.personal-balance-summary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
+.personal-balance-summary strong {
+  white-space: nowrap;
 }
 
 .debt-list {

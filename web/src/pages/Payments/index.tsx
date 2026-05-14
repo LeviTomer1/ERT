@@ -1,4 +1,10 @@
-import { useMemo, useState, type FormEvent } from 'react'
+﻿import {
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type FormEvent,
+} from 'react'
 import { Card } from '../../components/Card'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { useApartment } from '../../context/ApartmentContext'
@@ -14,6 +20,17 @@ interface PaymentFormState {
   note: string
 }
 
+interface PaymentsPageProps {
+  embedded?: boolean
+  showHero?: boolean
+  triggerClassName?: string
+  triggerLabel?: string
+}
+
+export interface PaymentsPageHandle {
+  openPaymentModal: () => void
+}
+
 function calculateApartmentBalances(expenses: Expense[], payments: Payment[]) {
   const netBalanceByUser: Record<number, number> = {}
 
@@ -24,11 +41,10 @@ function calculateApartmentBalances(expenses: Expense[], payments: Payment[]) {
       const participants = expense.participant_ids
       if (!Number.isFinite(amount) || amount <= 0 || participants.length === 0) return
 
-      const share = amount / participants.length
       netBalanceByUser[expense.paid_by] = (netBalanceByUser[expense.paid_by] ?? 0) + amount
 
       participants.forEach((participantId) => {
-        netBalanceByUser[participantId] = (netBalanceByUser[participantId] ?? 0) - share
+        netBalanceByUser[participantId] = (netBalanceByUser[participantId] ?? 0) - amount / participants.length
       })
     })
 
@@ -80,10 +96,8 @@ function calculateApartmentBalances(expenses: Expense[], payments: Payment[]) {
 }
 
 function createInitialPaymentForm(roommates: User[], currentUserId?: number): PaymentFormState {
-  const fallbackPayer =
-    roommates.find((roommate) => roommate.id === currentUserId) ?? roommates[0] ?? null
-  const fallbackPayee =
-    roommates.find((roommate) => roommate.id !== fallbackPayer?.id) ?? roommates[0] ?? null
+  const fallbackPayer = roommates.find((roommate) => roommate.id === currentUserId) ?? roommates[0] ?? null
+  const fallbackPayee = roommates.find((roommate) => roommate.id !== fallbackPayer?.id) ?? roommates[0] ?? null
 
   return {
     payerId: fallbackPayer ? String(fallbackPayer.id) : '',
@@ -122,7 +136,15 @@ function formatDateTime(value: string) {
   }).format(new Date(value))
 }
 
-export function PaymentsPage() {
+export const PaymentsPage = forwardRef<PaymentsPageHandle, PaymentsPageProps>(function PaymentsPage(
+  {
+    embedded = false,
+    showHero = true,
+    triggerClassName = 'btn btn--primary payments-hero__action',
+    triggerLabel = 'רישום תשלום',
+  },
+  ref,
+) {
   const { user } = useAuth()
   const { current } = useApartment()
   const { expenses, payments, addPayment, updatePayment, deletePayment } = useExpenses()
@@ -162,15 +184,11 @@ export function PaymentsPage() {
   const [formError, setFormError] = useState('')
 
   const myId = user?.id
-  const totalBalanceToSettle = settlements.reduce(
-    (sum, settlement) => sum + Number(settlement.amount),
-    0,
-  )
+  const totalBalanceToSettle = settlements.reduce((sum, settlement) => sum + Number(settlement.amount), 0)
   const myNetBalance = myId ? netBalanceByUser[myId] ?? 0 : 0
-  const totalRecordedPayments = activePayments.reduce(
-    (sum, payment) => sum + Number(payment.amount),
-    0,
-  )
+  const debtsToMe = myId ? settlements.filter((settlement) => settlement.payee_id === myId) : []
+  const debtsFromMe = myId ? settlements.filter((settlement) => settlement.payer_id === myId) : []
+  const totalRecordedPayments = activePayments.reduce((sum, payment) => sum + Number(payment.amount), 0)
 
   function updatePaymentForm(field: keyof PaymentFormState, value: string) {
     setPaymentForm((currentForm) => ({ ...currentForm, [field]: value }))
@@ -182,6 +200,10 @@ export function PaymentsPage() {
     setFormError('')
     setIsPaymentModalOpen(true)
   }
+
+  useImperativeHandle(ref, () => ({
+    openPaymentModal: openAddPaymentModal,
+  }))
 
   function openEditPaymentModal(payment: Payment) {
     setSelectedPayment(null)
@@ -267,20 +289,25 @@ export function PaymentsPage() {
   }
 
   return (
-    <div className="page payments-page">
-      <div className="page__head payments-hero">
-        <button
-          type="button"
-          className="btn btn--primary payments-hero__action"
-          onClick={openAddPaymentModal}
-        >
-          רישום תשלום
-        </button>
-      </div>
+    <section className={`payments-page${embedded ? ' payments-page--embedded' : ' page'}`}>
+      {showHero ? (
+        <div className={`${embedded ? 'payments-hero payments-hero--embedded' : 'page__head payments-hero'}`}>
+          <div>
+            <p className="payments-hero__eyebrow">יתרות וסגירת חובות</p>
+            <h2 className="page__title">מי צריך להעביר למי?</h2>
+            <p className="page__lead">
+              חשבונות כמו חשמל, מים או קניות נרשמים כהוצאה שמתחלקת בין הדיירים. כאן רושמים רק העברת כסף בפועל לסגירת יתרה.
+            </p>
+          </div>
+          <button type="button" className={triggerClassName} onClick={openAddPaymentModal}>
+            {triggerLabel}
+          </button>
+        </div>
+      ) : null}
 
       <section className="payments-summary" aria-label="סיכום תשלומים">
         <Card className="payments-summary__main">
-          <p className="payments-summary__label">סה"כ תשלומים שנרשמו</p>
+          <p className="payments-summary__label">סה&quot;כ תשלומים שנרשמו</p>
           <p className="payments-summary__amount">{formatCurrency(totalRecordedPayments)}</p>
         </Card>
 
@@ -292,11 +319,7 @@ export function PaymentsPage() {
 
           <Card>
             <p className="payments-mini-stat__label">היתרה שלך</p>
-            <p
-              className={`payments-mini-stat__value${
-                myNetBalance < -0.005 ? ' payments-mini-stat__value--danger' : ''
-              }`}
-            >
+            <p className={`payments-mini-stat__value${myNetBalance < -0.005 ? ' payments-mini-stat__value--danger' : ''}`}>
               {formatCurrency(Math.abs(myNetBalance))}
             </p>
             <p className="payments-mini-stat__hint">
@@ -309,18 +332,14 @@ export function PaymentsPage() {
       <div className="shopping-filter-tabs payments-tabs" aria-label="מעבר בין אזורי תשלומים">
         <button
           type="button"
-          className={`shopping-filter-tabs__button${
-            activeTab === 'balances' ? ' shopping-filter-tabs__button--active' : ''
-          }`}
+          className={`shopping-filter-tabs__button${activeTab === 'balances' ? ' shopping-filter-tabs__button--active' : ''}`}
           onClick={() => setActiveTab('balances')}
         >
           יתרות לתיאום
         </button>
         <button
           type="button"
-          className={`shopping-filter-tabs__button${
-            activeTab === 'history' ? ' shopping-filter-tabs__button--active' : ''
-          }`}
+          className={`shopping-filter-tabs__button${activeTab === 'history' ? ' shopping-filter-tabs__button--active' : ''}`}
           onClick={() => setActiveTab('history')}
         >
           תשלומים אחרונים
@@ -329,14 +348,48 @@ export function PaymentsPage() {
 
       {activeTab === 'balances' ? (
         <Card title="יתרות לתיאום">
+          {myId ? (
+            <div className="personal-balance-summary">
+              <div className="personal-balance-summary__section">
+                <h3>חייבים לי</h3>
+                {debtsToMe.length === 0 ? (
+                  <p>כרגע אף אחד לא חייב לך כסף.</p>
+                ) : (
+                  <ul>
+                    {debtsToMe.map((settlement) => (
+                      <li key={`to-me-${settlement.id}`}>
+                        <span>{getUserName(settlement.payer_id)} חייב לך</span>
+                        <strong>{formatCurrency(settlement.amount)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="personal-balance-summary__section personal-balance-summary__section--danger">
+                <h3>אני חייב</h3>
+                {debtsFromMe.length === 0 ? (
+                  <p>אין לך חובות פתוחים לדיירים אחרים.</p>
+                ) : (
+                  <ul>
+                    {debtsFromMe.map((settlement) => (
+                      <li key={`from-me-${settlement.id}`}>
+                        <span>אתה חייב ל{getUserName(settlement.payee_id)}</span>
+                        <strong>{formatCurrency(settlement.amount)}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {settlements.length === 0 ? (
             <p className="muted">אין יתרות פתוחות לפי ההוצאות והתשלומים שנרשמו בדירה הזו.</p>
           ) : (
             <ul className="debt-list">
               {settlements.map((settlement) => {
-                const isRelatedToMe =
-                  myId != null &&
-                  (settlement.payer_id === myId || settlement.payee_id === myId)
+                const isRelatedToMe = myId != null && (settlement.payer_id === myId || settlement.payee_id === myId)
 
                 return (
                   <li key={settlement.id} className="debt-list__item">
@@ -349,9 +402,7 @@ export function PaymentsPage() {
                       <span>מבוסס על הוצאות ותשלומים שנרשמו בדירה</span>
                       {isRelatedToMe ? <span className="debt-list__tag">שלך</span> : null}
                     </div>
-                    <strong className="debt-list__amount">
-                      {formatCurrency(settlement.amount)}
-                    </strong>
+                    <strong className="debt-list__amount">{formatCurrency(settlement.amount)}</strong>
                   </li>
                 )
               })}
@@ -366,19 +417,13 @@ export function PaymentsPage() {
             <ul className="payment-list payment-list--cards">
               {activePayments.map((payment) => (
                 <li key={payment.id} className="payment-list__item payment-item-card">
-                  <button
-                    type="button"
-                    className="expense-item-card__button"
-                    onClick={() => setSelectedPayment(payment)}
-                  >
+                  <button type="button" className="expense-item-card__button" onClick={() => setSelectedPayment(payment)}>
                     <div className="payment-item-card__main">
                       <div className="payment-list__title">
-                        {getUserName(payment.payer_id)} שילם ל־{getUserName(payment.payee_id)}
+                        {getUserName(payment.payer_id)} שילם ל{getUserName(payment.payee_id)}
                       </div>
                       <div className="payment-list__meta">{formatDateTime(payment.created_at)}</div>
-                      {payment.note ? (
-                        <div className="payment-list__note">{payment.note}</div>
-                      ) : null}
+                      {payment.note ? <div className="payment-list__note">{payment.note}</div> : null}
                     </div>
                     <div className="payment-list__right">
                       <div className="payment-list__amount">{formatCurrency(payment.amount)}</div>
@@ -393,20 +438,11 @@ export function PaymentsPage() {
 
       {isPaymentModalOpen ? (
         <div className="modal-backdrop" role="presentation">
-          <section
-            className="payment-modal card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-payment-title"
-          >
+          <section className="payment-modal card" role="dialog" aria-modal="true" aria-labelledby="add-payment-title">
             <div className="payment-modal__head">
               <div>
-                <p className="payments-hero__eyebrow">
-                  {editingPayment ? 'עריכת תשלום' : 'רישום תשלום'}
-                </p>
-                <h2 id="add-payment-title">
-                  {editingPayment ? 'עדכון תשלום' : 'תשלום חדש'}
-                </h2>
+                <p className="payments-hero__eyebrow">{editingPayment ? 'עריכת תשלום' : 'רישום תשלום'}</p>
+                <h2 id="add-payment-title">{editingPayment ? 'עדכון תשלום' : 'תשלום חדש'}</h2>
               </div>
               <button type="button" className="btn-text" onClick={closePaymentModal}>
                 סגירה
@@ -417,11 +453,7 @@ export function PaymentsPage() {
               <div className="payment-form__grid">
                 <label className="field">
                   <span className="field__label">מי שילם?</span>
-                  <select
-                    className="field__input"
-                    value={paymentForm.payerId}
-                    onChange={(event) => updatePaymentForm('payerId', event.target.value)}
-                  >
+                  <select className="field__input" value={paymentForm.payerId} onChange={(event) => updatePaymentForm('payerId', event.target.value)}>
                     {roommates.map((roommate) => (
                       <option key={roommate.id} value={roommate.id}>
                         {roommate.name}
@@ -432,11 +464,7 @@ export function PaymentsPage() {
 
                 <label className="field">
                   <span className="field__label">למי שילמו?</span>
-                  <select
-                    className="field__input"
-                    value={paymentForm.payeeId}
-                    onChange={(event) => updatePaymentForm('payeeId', event.target.value)}
-                  >
+                  <select className="field__input" value={paymentForm.payeeId} onChange={(event) => updatePaymentForm('payeeId', event.target.value)}>
                     {roommates.map((roommate) => (
                       <option key={roommate.id} value={roommate.id}>
                         {roommate.name}
@@ -464,13 +492,7 @@ export function PaymentsPage() {
 
                 <label className="field">
                   <span className="field__label">תאריך תשלום</span>
-                  <input
-                    className="field__input"
-                    type="date"
-                    dir="ltr"
-                    value={paymentForm.paymentDate}
-                    onChange={(event) => updatePaymentForm('paymentDate', event.target.value)}
-                  />
+                  <input className="field__input" type="date" dir="ltr" value={paymentForm.paymentDate} onChange={(event) => updatePaymentForm('paymentDate', event.target.value)} />
                 </label>
               </div>
 
@@ -501,18 +523,12 @@ export function PaymentsPage() {
 
       {selectedPayment ? (
         <div className="modal-backdrop" role="presentation">
-          <section
-            className="payment-modal card"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="payment-details-title"
-          >
+          <section className="payment-modal card" role="dialog" aria-modal="true" aria-labelledby="payment-details-title">
             <div className="payment-modal__head">
               <div>
                 <p className="payments-hero__eyebrow">פרטי תשלום</p>
                 <h2 id="payment-details-title">
-                  {getUserName(selectedPayment.payer_id)} שילם ל־
-                  {getUserName(selectedPayment.payee_id)}
+                  {getUserName(selectedPayment.payer_id)} שילם ל{getUserName(selectedPayment.payee_id)}
                 </h2>
                 <p>{formatDateTime(selectedPayment.created_at)}</p>
               </div>
@@ -543,18 +559,10 @@ export function PaymentsPage() {
               </div>
 
               <div className="expense-form__actions">
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => openEditPaymentModal(selectedPayment)}
-                >
+                <button type="button" className="btn btn--secondary" onClick={() => openEditPaymentModal(selectedPayment)}>
                   עריכה
                 </button>
-                <button
-                  type="button"
-                  className="btn btn--danger"
-                  onClick={() => setPaymentToDelete(selectedPayment)}
-                >
+                <button type="button" className="btn btn--danger" onClick={() => setPaymentToDelete(selectedPayment)}>
                   מחיקה
                 </button>
               </div>
@@ -573,6 +581,6 @@ export function PaymentsPage() {
           onCancel={() => setPaymentToDelete(null)}
         />
       ) : null}
-    </div>
+    </section>
   )
-}
+})

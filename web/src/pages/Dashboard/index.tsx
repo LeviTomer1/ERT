@@ -23,21 +23,6 @@ function ExpensesIcon() {
   )
 }
 
-function PaymentsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M7 7h11m0 0-3-3m3 3-3 3M17 17H6m0 0 3-3m-3 3 3 3"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 function TasksIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -143,23 +128,15 @@ export function DashboardPage() {
   const modules = [
     {
       to: appRoutes.expenses,
-      title: 'הוצאות',
+      title: 'כספים',
       status:
         expensesThisMonth.length > 0
-          ? `${expensesThisMonth.length} חדשות`
-          : 'אין חדשות',
+          ? `${expensesThisMonth.length} הוצאות החודש`
+          : apartmentPayments.length > 0
+            ? `${apartmentPayments.length} תשלומים נרשמו`
+            : 'מאוזן כרגע',
       tone: 'blue',
       icon: <ExpensesIcon />,
-    },
-    {
-      to: appRoutes.payments,
-      title: 'תשלומים',
-      status:
-        apartmentPayments.length > 0
-          ? `${apartmentPayments.length} נרשמו`
-          : 'מאוזן כרגע',
-      tone: 'purple',
-      icon: <PaymentsIcon />,
     },
     {
       to: appRoutes.tasks,

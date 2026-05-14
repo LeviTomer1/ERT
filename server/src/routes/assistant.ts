@@ -40,7 +40,12 @@ assistantRouter.post(
     try {
       const apartmentId = Number(request.params.apartmentId)
       const body = validateBody(assistantQuestionSchema, request.body)
-      const result = await answerAssistantQuestion(apartmentId, body.question)
+      if (!request.auth) {
+        response.status(401).json({ error: 'Authentication is required.' })
+        return
+      }
+
+      const result = await answerAssistantQuestion(apartmentId, body.question, request.auth.account)
       response.json(result)
     } catch (error) {
       next(error)

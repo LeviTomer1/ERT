@@ -51,7 +51,12 @@ export function AssistantPanel() {
             key={message.id}
             className={`assistant-panel__message assistant-panel__message--${message.role}`}
           >
-            {message.text}
+            {message.text.split('\n').map((line, index) => (
+              <span key={`${message.id}-${index}`}>
+                {line}
+                {index < message.text.split('\n').length - 1 ? <br /> : null}
+              </span>
+            ))}
           </div>
         ))}
 
