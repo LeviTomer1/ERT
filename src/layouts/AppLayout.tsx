@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useState } from 'react'
+import { AIAgentChat } from '../components/AIAgentChat'
 import { BottomNav } from '../components/BottomNav'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useAuth } from '../context/AuthContext'
@@ -71,6 +72,7 @@ export function AppLayout() {
       </main>
 
       <BottomNav />
+      <AIAgentChat />
 
       {isResetConfirmOpen ? (
         <ConfirmDialog
